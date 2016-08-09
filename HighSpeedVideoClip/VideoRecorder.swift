@@ -18,7 +18,9 @@ class VideoRecorder: NSObject {
     var outputPath = NSTemporaryDirectory() + "/clip.mov"
     let maxSeconds = 30
 
-    var isRecording = false
+    var isRecording: Bool {
+        return dataOutput.recording
+    }
 
     required init(filePath: String) {
         super.init()
@@ -57,7 +59,7 @@ class VideoRecorder: NSObject {
                 try device.lockForConfiguration()
                 device.activeFormat = bestFormat
                 device.activeVideoMinFrameDuration = bestFrameRateRange.minFrameDuration
-                device.activeVideoMaxFrameDuration = CMTimeMultiply(bestFrameRateRange.minFrameDuration, 2)
+                device.activeVideoMaxFrameDuration = bestFrameRateRange.minFrameDuration
                 device.unlockForConfiguration()
             } catch let error as NSError {
                 NSLog("device lock failed: " + error.localizedDescription)
@@ -110,21 +112,86 @@ class VideoRecorder: NSObject {
     }
 
     func startRecording() {
-        let url = NSURL(fileURLWithPath: outputPath)
+        let url = NSURL(fileURLWithPath: NSTemporaryDirectory() + "/clip.mov")
         dataOutput.startRecordingToOutputFileURL(url, recordingDelegate: self)
-        isRecording = true
     }
 
     func stopRecording() {
         dataOutput.stopRecording()
     }
+
+    func clipVideo(inputUrl: NSURL) {
+
+        // input video
+        let asset = AVAsset(URL: inputUrl)
+        let duration = CMTimeGetSeconds(asset.duration)
+        var startTime = CMTimeMakeWithSeconds(0, asset.duration.timescale)
+        var endTime = asset.duration
+        if duration > 4.0 {
+            let fourSeconds = CMTimeMakeWithSeconds(4.0, asset.duration.timescale)
+            startTime = CMTimeSubtract(asset.duration, fourSeconds)
+            let oneSecond = CMTimeMakeWithSeconds(1.0, asset.duration.timescale)
+            endTime = CMTimeSubtract(asset.duration, oneSecond)
+        }
+        let timeRange = CMTimeRangeFromTimeToTime(startTime, endTime)
+//        let composition = AVMutableComposition()
+//        composition.addMutableTrackWithMediaType(AVMediaTypeVideo, preferredTrackID: kCMPersistentTrackID_Invalid)
+//        let clip = asset.tracksWithMediaType(AVMediaTypeVideo).first!
+
+        // transform
+//        let videoComposition = AVMutableVideoComposition()
+//        videoComposition.renderSize = clip.naturalSize
+//        videoComposition.frameDuration = device.activeVideoMaxFrameDuration
+//        let instruction = AVMutableVideoCompositionInstruction()
+//        instruction.timeRange = CMTimeRangeMake(kCMTimeZero, timeRange.duration)
+//        let transformer = AVMutableVideoCompositionLayerInstruction(assetTrack: clip)
+        // uncomment to use portrait
+//        let t1 = CGAffineTransformMakeTranslation(clip.naturalSize.height, -(clip.naturalSize.width-clip.naturalSize.height)/2)
+//        let t2 = CGAffineTransformRotate(t1, CGFloat(M_PI_2))
+//        transformer.setTransform(t2, atTime: kCMTimeZero)
+//        instruction.layerInstructions = [transformer]
+//        videoComposition.instructions = [instruction]
+
+        // output
+        let exporter = AVAssetExportSession(asset: asset, presetName: AVAssetExportPresetHighestQuality)
+//        exporter?.videoComposition = videoComposition
+        let docFolder = NSFileManager.defaultManager().URLsForDirectory(.DocumentDirectory, inDomains: .UserDomainMask)
+        let outputUrl = docFolder.first!.URLByAppendingPathComponent("clip.mov")
+        exporter?.outputURL = outputUrl
+        exporter?.outputFileType = AVFileTypeQuickTimeMovie
+        exporter?.timeRange = timeRange
+        exporter?.exportAsynchronouslyWithCompletionHandler({
+            switch exporter!.status {
+            case .Unknown:
+                NSLog("Export unknown")
+            case .Waiting:
+                NSLog("Export waiting")
+            case .Exporting:
+                NSLog("Export exporting")
+            case .Completed:
+                NSLog("Export complete to " + self.outputPath)
+            case .Failed:
+                NSLog("Export error: " + exporter!.error!.localizedDescription)
+            case .Cancelled:
+                NSLog("Export cancelled")
+            }
+        })
+    }
 }
 
 extension VideoRecorder: AVCaptureFileOutputRecordingDelegate {
     func captureOutput(captureOutput: AVCaptureFileOutput!, didFinishRecordingToOutputFileAtURL outputFileURL: NSURL!, fromConnections connections: [AnyObject]!, error: NSError!) {
-        isRecording = false
+        NSLog("Done recording, output saved in " + outputFileURL.absoluteString)
         if error != nil {
             NSLog("Video recording error: " + error.localizedDescription)
         }
+        if NSFileManager.defaultManager().fileExistsAtPath(outputPath) {
+            do {
+                try NSFileManager.defaultManager().removeItemAtPath(outputPath)
+            } catch let error as NSError {
+                NSLog("unable to delete file: " + error.localizedDescription)
+            }
+        }
+        clipVideo(outputFileURL)
     }
 }

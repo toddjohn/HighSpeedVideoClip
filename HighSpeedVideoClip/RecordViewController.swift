@@ -33,6 +33,7 @@ class RecordViewController: UIViewController {
         recorder.outputPath = path
         if previewLayer == nil {
             previewLayer = recorder.getPreviewLayer()
+            previewLayer.frame = videoPreview.bounds
             videoPreview.layer.addSublayer(previewLayer)
         }
     }
